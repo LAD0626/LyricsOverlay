@@ -1,0 +1,5 @@
+.DS_Store
+.smoke/
+
+LyricsOverlay.xcodeproj/xcuserdata/
+*.xcuserstate
