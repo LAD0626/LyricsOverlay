@@ -1,5 +1,7 @@
 .DS_Store
 .smoke/
+__pycache__/
+*.pyc
 
 LyricsOverlay.xcodeproj/xcuserdata/
 *.xcuserstate

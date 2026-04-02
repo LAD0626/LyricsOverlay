@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "LyricsOverlay Bridge",
+  "version": "0.1.0",
+  "description": "Bridges YouTube Music playback data into the LyricsOverlay macOS app.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["https://music.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

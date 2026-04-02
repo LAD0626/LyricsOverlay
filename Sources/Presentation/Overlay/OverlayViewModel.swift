@@ -48,7 +48,7 @@ final class OverlayViewModel: ObservableObject {
     private func refreshLyrics() {
         guard let lines = lyricsPayload?.syncedLines, !lines.isEmpty else {
             currentLineText = "No synced lyrics available."
-            nextLineText = "Load a mock track to preview the overlay."
+            nextLineText = "Waiting for lyrics data for \(currentTrack?.title ?? "the current track")."
             return
         }
 

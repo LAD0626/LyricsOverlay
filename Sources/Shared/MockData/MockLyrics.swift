@@ -26,4 +26,40 @@ enum MockLyrics {
             LyricLine(time: 36, text: "And morning waits beyond the final light")
         ]
     )
+
+    static func lyricsPayload(for track: TrackInfo) -> LyricsPayload? {
+        if track.title == mockTrack.title, track.artist == mockTrack.artist {
+            return mockLyricsPayload
+        }
+
+        let duration = max(track.duration ?? 42, 30)
+        let trackIdentifier = normalizedTrackID(for: track)
+        let lineCount = 6
+        let spacing = duration / Double(lineCount)
+        let lines = [
+            "Now playing \(track.title)",
+            "\(track.artist) is live on YouTube Music",
+            "Browser bridge is feeding real playback time",
+            "Synced lyrics API is not connected in Step 2",
+            "Overlay is following the current song timeline",
+            "Temporary fallback lyrics stay in sync for \(track.title)"
+        ]
+
+        let syncedLines = lines.enumerated().map { index, text in
+            LyricLine(time: Double(index) * spacing, text: text)
+        }
+
+        return LyricsPayload(trackID: trackIdentifier, syncedLines: syncedLines)
+    }
+
+    private static func normalizedTrackID(for track: TrackInfo) -> String {
+        let rawValue = "\(track.title)-\(track.artist)"
+        let sanitized = rawValue
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+
+        return sanitized.isEmpty ? "fallback-track" : sanitized
+    }
 }

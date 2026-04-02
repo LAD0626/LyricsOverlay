@@ -3,17 +3,27 @@ import SwiftUI
 
 @MainActor
 final class AppCoordinator {
+    private enum PlaybackSource {
+        case awaitingBridge
+        case bridge
+        case mock
+    }
+
     private let settingsStore: SettingsStoring
     private let settingsViewModel: SettingsViewModel
     private let overlayViewModel: OverlayViewModel
     private let overlayWindowController: OverlayWindowController
-    private let playerDetector: PlayerDetecting
+    private let browserBridgePlayerDetector: BrowserBridgePlayerDetector
+    private let mockPlayerDetector: PlayerDetecting
     private let statusBarController: StatusBarController
     private let settingsWindowController: NSWindowController
+    private var activeSource: PlaybackSource = .awaitingBridge
+    private var startupFallbackTimer: Timer?
 
     init(
         settingsStore: SettingsStoring = UserDefaultsSettingsStore(),
-        playerDetector: PlayerDetecting? = nil
+        browserBridgePlayerDetector: BrowserBridgePlayerDetector? = nil,
+        mockPlayerDetector: PlayerDetecting? = nil
     ) {
         let store = settingsStore
         self.settingsStore = store
@@ -25,7 +35,8 @@ final class AppCoordinator {
         self.overlayViewModel = overlayViewModel
         self.overlayWindowController = OverlayWindowController(viewModel: overlayViewModel)
 
-        self.playerDetector = playerDetector ?? MockPlayerDetector()
+        self.browserBridgePlayerDetector = browserBridgePlayerDetector ?? BrowserBridgePlayerDetector()
+        self.mockPlayerDetector = mockPlayerDetector ?? MockPlayerDetector()
         self.statusBarController = StatusBarController()
 
         let settingsHostingController = NSHostingController(rootView: SettingsView(viewModel: settingsViewModel))
@@ -51,25 +62,51 @@ final class AppCoordinator {
         overlayWindowController.apply(settings: initialSettings)
         overlayWindowController.show()
 
-        playerDetector.start()
+        browserBridgePlayerDetector.start()
+        scheduleStartupFallback()
     }
 
     func stop() {
-        playerDetector.stop()
+        startupFallbackTimer?.invalidate()
+        startupFallbackTimer = nil
+        browserBridgePlayerDetector.stop()
+        mockPlayerDetector.stop()
     }
 
     private func wireDependencies() {
-        playerDetector.onTrackChanged = { [weak self] track in
+        browserBridgePlayerDetector.onBridgeDidBecomeActive = { [weak self] in
+            self?.activateBridge()
+        }
+
+        browserBridgePlayerDetector.onBridgeDidBecomeStale = { [weak self] in
+            self?.fallbackToMockIfNeeded()
+        }
+
+        browserBridgePlayerDetector.onTrackChanged = { [weak self] track in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                let lyrics = track == MockLyrics.mockTrack ? MockLyrics.mockLyricsPayload : nil
-                overlayViewModel.setTrack(track, lyrics: lyrics)
+                guard let self, activeSource == .bridge else { return }
+                overlayViewModel.setTrack(track, lyrics: MockLyrics.lyricsPayload(for: track))
             }
         }
 
-        playerDetector.onPlaybackProgress = { [weak self] currentTime in
+        browserBridgePlayerDetector.onPlaybackProgress = { [weak self] currentTime in
             Task { @MainActor [weak self] in
-                self?.overlayViewModel.updatePlaybackTime(currentTime)
+                guard let self, activeSource == .bridge else { return }
+                overlayViewModel.updatePlaybackTime(currentTime)
+            }
+        }
+
+        mockPlayerDetector.onTrackChanged = { [weak self] track in
+            Task { @MainActor [weak self] in
+                guard let self, activeSource == .mock else { return }
+                overlayViewModel.setTrack(track, lyrics: MockLyrics.lyricsPayload(for: track))
+            }
+        }
+
+        mockPlayerDetector.onPlaybackProgress = { [weak self] currentTime in
+            Task { @MainActor [weak self] in
+                guard let self, activeSource == .mock else { return }
+                overlayViewModel.updatePlaybackTime(currentTime)
             }
         }
 
@@ -101,5 +138,39 @@ final class AppCoordinator {
         settingsWindowController.window?.center()
         settingsWindowController.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func scheduleStartupFallback() {
+        startupFallbackTimer?.invalidate()
+        startupFallbackTimer = Timer.scheduledTimer(withTimeInterval: BridgeConstants.startupFallbackTimeout, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.activateMockIfNeeded()
+            }
+        }
+
+        if let startupFallbackTimer {
+            RunLoop.main.add(startupFallbackTimer, forMode: .common)
+        }
+    }
+
+    private func activateBridge() {
+        startupFallbackTimer?.invalidate()
+        startupFallbackTimer = nil
+
+        guard activeSource != .bridge else { return }
+        activeSource = .bridge
+        mockPlayerDetector.stop()
+    }
+
+    private func activateMockIfNeeded() {
+        guard activeSource != .bridge else { return }
+        activeSource = .mock
+        mockPlayerDetector.start()
+    }
+
+    private func fallbackToMockIfNeeded() {
+        guard activeSource == .bridge else { return }
+        activeSource = .mock
+        mockPlayerDetector.start()
     }
 }
